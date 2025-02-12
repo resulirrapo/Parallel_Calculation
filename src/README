@@ -1,59 +1,64 @@
-Am folosit uthash.h pentru a implementa si gestiona un hashmap eficient in C,
-care permite stocarea si cautarea rapida a cuvintelor si a ID urilor fisierelor
-in timpul procesarii datelor de catre Mapperi si Reduceri.
+Parallel computation of an inverted index
+using the Map-Reduce paradigm
+
+We used uthash.h to implement and manage an efficient hashmap in C,
+which allows for fast storage and retrieval of words and file IDs
+while processing data by Mappers and Reducers.
 
 Main:
 
-- Se citeste numarul de thread uri pentru Mapperi, numarul de thread uri pentru
-Reduceri si fisierul cu lista de fisiere de procesat
-- Se citeste numarul total de fisiere, iar apoi fiecare fisier din lista este
-citit si salvat intr un tablou de FileEntry in structura DataSync
-- Se aloca si se initializeaza structura de date partajate
-- Se creeaza un array de pthread_t pentru thread uri si se initializeaza un
-array de ThreadParams pentru a trimite datele necesare fiecarui thread
-- Fiecare thread este creat si pornit cu pthread_create (intr un singur for de
-dimensiune mapper_counts + reducer_counts)
-- Programul asteapta ca toate thread urile sa se termine folosind pthread_join
-(intr un singur for de dimensiune mapper_counts + reducer_counts)
-- Dupa ce toate thread urile au terminat executia, se distrug barrier, map_mutex
-si task_mutex
+- Read the number of threads for Mappers, the number of threads for Reducers, and the file with the list of files to process
+
+- Read the total number of files, and then each file in the list is
+read and saved in a FileEntry array in the DataSync structure
+
+- Allocate and initialize the shared data structure
+
+- Create an array of pthread_t for threads and initialize an array of ThreadParams to send the necessary data to each thread
+
+- Each thread is created and started with pthread_create (in a single thread of size mapper_counts + reducer_counts)
+
+- The program waits for all threads to finish using pthread_join
+
+(in a single thread of size mapper_counts + reducer_counts)
+
+- After all threads have finished executing, the barrier, map_mutex, and task_mutex are destroyed
 
 Map_reduce_function:
 
-- Fiecare thread primeste un pointer la ThreadParams, care include un pointer catre
-DataSync, structura de date partajate. Permite fiecarui thread sa acceseze si sa
-actualizeze datele comune necesare pentru gestionarea operatiilor de map si reduce.
+- Each thread receives a pointer to ThreadParams, which includes a pointer to
+DataSync, the shared data structure. It allows each thread to access and
+update the common data needed to handle map and reduce operations.
 
-- Thread urile de tip Mapper:
-  -> iau dinamic un fisier din lista de fisiere folosind task_mutex si curent_file_id
-  -> citesc continutul fisierului si extrag cuvintele
-  -> pentru fiecare cuvant:
-	-> il formateaza folosind format_word (elimina caractere non alfabetice,
-	il face lowercase)
-	-> il insereaza in hashmap ul sau local impreuna cu ID ul fisierului
-  -> dupa procesarea fisierului copiaza continutul local in word_hashmap,
-  folosind map_mutex pentru sincronizare
+- Mapper threads:
+-> dynamically take a file from the file list using task_mutex and curent_file_id
+-> read the file content and extract the words
+-> for each word:
+-> formats it using format_word (remove non-alphabetic characters,
+make it lowercase)
+-> inserts it into its local hashmap along with the file ID
+-> after processing the file copies the local content into word_hashmap,
+using map_mutex for synchronization
 
-- Thread urile de tip Reducer:
-  -> asteapta ca toti Mapperii sa termine (sincronizare prin pthread_barrier_wait)
-  -> fiecare reducer proceseaza un subset al alfabetului
-  -> pentru fiecare litera:
-	-> selecteaza cuvintele care incep cu litera respectiva din word_hashmap
-	-> construieste un hashmap local pentru cuvintele selectate
-	-> sorteaza alfabetic cuvintele in functie de numarul de fisiere in care apar
-	-> scrie rezultatele intr un fisier specific literei (a.txt, b.txt etc.)
+- Reducer threads:
+-> waits for all Mappers to finish (synchronization via pthread_barrier_wait)
+-> each reducer processes a subset of the alphabet
+-> for each letter:
+-> selects words that start with that letter from word_hashmap
+-> builds a local hashmap for the selected words
+-> alphabetically sorts the words according to the number of files in which they appear
+-> writes the results to a letter-specific file (a.txt, b.txt etc.)
 
-Sincronizare:
+Synchronization:
 
-Pentru a asigura sincronizarea am folosit mutex uri si bariera:
-- map_mutex: este folosit pentru a sincroniza accesul la word_hashmap, care este
-hashmap ul global. Astfel, doar un singur thread (fiecare Mapper) poate
-modifica word_hashmap in acelasi timp
-- task_mutex: Este folosit pentru a gestiona accesul la curent_file_id, care
-reprezinta indexul curent al fisierului care trebuie procesat. Acest mutex asigura
-ca doar un thread poate modifica curent_file_id in acelasi timp, permitand astfel
-distribuirea dinamica a fisierelor intre Mapperi
-- pthread_barrier_t barrier: Este folosita pentru a sincroniza toate thread urile,
-atat Mapperii, cat si Reducerii. Bariera asigura ca toate thread urile Mapper au
-terminat de procesat fisierele si au actualizat word_hashmap inainte ca thread urile
-Reducer sa inceapa sa proceseze datele
+To ensure synchronization we used mutexes and barriers:
+- map_mutex: is used to synchronize access to word_hashmap, which is
+the global hashmap. Thus, only one thread (each Mapper) can
+modify word_hashmap at the same time
+- task_mutex: Is used to manage access to curent_file_id, which
+represents the current index of the file to be processed. This mutex ensures
+that only one thread can modify curent_file_id at the same time, thus allowing
+dynamic distribution of files between Mappers
+- pthread_barrier_t barrier: Is used to synchronize all threads,
+both Mappers and Reducers. The barrier ensures that all Mapper threads have
+finished processing the files and updated word_hashmap before the Reducer threads start processing the data
